@@ -1,5 +1,13 @@
 # app.py
 import streamlit as st
+
+# ✅ MUST be the first Streamlit command in the script
+st.set_page_config(
+    page_title="AI Humanizer - Make AI Content Undetectable",
+    page_icon="🎭",
+    layout="wide"
+)
+
 import re
 import random
 import string
@@ -10,7 +18,6 @@ from nltk.tokenize import sent_tokenize, word_tokenize
 from nltk.tag import pos_tag
 from nltk.corpus import stopwords
 import os
-import hashlib
 
 # Download required NLTK data (will be cached)
 @st.cache_resource
@@ -49,7 +56,7 @@ class AIHumanizer:
                    "N": wordnet.NOUN,
                    "V": wordnet.VERB,
                    "R": wordnet.ADV}
-        return tag(dict.get(tag_dict, wordnet.NOUN))
+        return tag_dict.get(tag, wordnet.NOUN)  # Fixed: was tag(dict.get(...))
     
     def get_synonyms(self, word: str, pos: str = None) -> List[str]:
         """Get synonyms for a word using WordNet"""
@@ -61,16 +68,14 @@ class AIHumanizer:
         for syn in wordnet.synsets(word):
             for lemma in syn.lemmas():
                 synonym = lemma.name().replace('_', ' ')
-                # Only add if it's a single word and different from original
                 if synonym.lower() != word.lower() and ' ' not in synonym:
                     synonyms.add(synonym.lower())
         
-        result = list(synonyms)[:5]  # Limit to 5 synonyms
+        result = list(synonyms)[:5]
         self.synonym_cache[cache_key] = result
         return result
     
     def paraphrase_sentence(self, sentence: str) -> str:
-        """Paraphrase a single sentence using multiple techniques"""
         if len(sentence.strip()) < 10:
             return sentence
             
@@ -78,30 +83,22 @@ class AIHumanizer:
         if len(words) < 3:
             return sentence
             
-        # POS tagging
         pos_tags = pos_tag(words)
-        
-        # Build paraphrased sentence
         paraphrased_words = []
         i = 0
         while i < len(words):
             word = words[i]
-            pos = pos_tags[i][1] if i < len(pos_tags) else 'NN'
-            
-            # Skip punctuation and very short words
             if word.lower() in string.punctuation or len(word) <= 2:
                 paraphrased_words.append(word)
                 i += 1
                 continue
                 
-            # Occasionally add filler words or change structure
             if random.random() < 0.15 and len(paraphrased_words) > 0:
                 fillers = ['actually', 'basically', 'essentially', 'in fact', 'indeed', 
                           'specifically', 'particularly', 'generally', 'typically']
                 if paraphrased_words[-1] not in string.punctuation:
                     paraphrased_words.append(random.choice(fillers))
             
-            # Synonym replacement (not for stopwords)
             if word.lower() not in self.stop_words and random.random() < 0.3:
                 synonyms = self.get_synonyms(word)
                 if synonyms:
@@ -111,7 +108,6 @@ class AIHumanizer:
             else:
                 paraphrased_words.append(word)
             
-            # Occasionally add discourse markers
             if random.random() < 0.1 and i < len(words) - 1:
                 markers = [', however,', ', therefore,', ', consequently,', 
                           ', moreover,', ', furthermore,', ', meanwhile,']
@@ -119,26 +115,18 @@ class AIHumanizer:
             
             i += 1
         
-        # Reconstruct sentence
         paraphrased = ' '.join(paraphrased_words)
-        
-        # Clean up multiple spaces and punctuation
         paraphrased = re.sub(r'\s+', ' ', paraphrased)
         paraphrased = re.sub(r'\s([,.!?;:])', r'\1', paraphrased)
-        
         return paraphrased.strip()
     
     def vary_sentence_structure(self, sentences: List[str]) -> List[str]:
-        """Apply various sentence structure modifications"""
         varied_sentences = []
-        
         for i, sentence in enumerate(sentences):
-            # Skip empty sentences
             if not sentence.strip():
                 varied_sentences.append(sentence)
                 continue
                 
-            # Add variety to sentence beginnings
             if i > 0 and random.random() < 0.4:
                 beginnings = [
                     'Additionally, ', 'Moreover, ', 'Furthermore, ', 
@@ -146,41 +134,30 @@ class AIHumanizer:
                     'On the other hand, ', 'However, ', 'Nevertheless, ',
                     'Consequently, ', 'Therefore, ', 'Thus, '
                 ]
-                
-                # Don't add if sentence already starts with transition word
                 first_word = sentence.split()[0].lower() if sentence.split() else ''
                 transition_words = {'however', 'therefore', 'thus', 'consequently', 
                                   'moreover', 'furthermore', 'additionally', 'also'}
-                
                 if first_word not in transition_words:
                     sentence = random.choice(beginnings) + sentence.lower().capitalize()
             
-            # Occasionally combine sentences (not too often to maintain readability)
             if (i < len(sentences) - 1 and len(sentence.split()) < 15 and 
                 len(sentences[i+1].split()) < 15 and random.random() < 0.2):
                 combined = sentence + ' ' + sentences[i+1].lower()
                 varied_sentences.append(combined)
-                # Skip next sentence since we combined it
-                continue
+                continue  # skip next sentence
             
             varied_sentences.append(sentence)
-            
         return varied_sentences
     
     def add_human_elements(self, text: str) -> str:
-        """Add human-like imperfections and variations"""
-        # Add occasional typos (very rare - 1 in 500 words)
         words = text.split()
-        if len(words) > 20 and random.random() < 0.8:  # 80% chance to add human elements
-            # Add sentence fragments occasionally
+        if len(words) > 20 and random.random() < 0.8:
             if random.random() < 0.1:
                 fragments = ['you know', 'I mean', 'sort of', 'kind of', 'like', 'well']
                 insert_pos = random.randint(1, max(1, len(words) - 2))
                 words.insert(insert_pos, f", {random.choice(fragments)}")
             
-            # Add slight redundancy (humans repeat concepts)
             if random.random() < 0.15 and len(words) > 50:
-                # Find a key concept and rephrase it later
                 key_words = [w for w in words if len(w) > 5 and w.lower() not in self.stop_words]
                 if key_words:
                     concept = random.choice(key_words)
@@ -189,46 +166,23 @@ class AIHumanizer:
                         insert_pos = min(len(words), random.randint(len(words)//2, len(words)-1))
                         if insert_pos < len(words):
                             words.insert(insert_pos, f"(or {random.choice(synonyms)})")
-        
         return ' '.join(words)
     
     def humanize_text(self, text: str) -> str:
-        """Main method to humanize AI-generated text"""
         if not text.strip():
             return text
             
-        # Split into sentences
         sentences = sent_tokenize(text)
-        
-        # Paraphrase each sentence
-        paraphrased_sentences = []
-        for sentence in sentences:
-            paraphrased = self.paraphrase_sentence(sentence)
-            paraphrased_sentences.append(paraphrased)
-        
-        # Vary sentence structure
+        paraphrased_sentences = [self.paraphrase_sentence(s) for s in sentences]
         varied_sentences = self.vary_sentence_structure(paraphrased_sentences)
-        
-        # Join back into text
         humanized_text = ' '.join(varied_sentences)
-        
-        # Add human elements
         humanized_text = self.add_human_elements(humanized_text)
-        
-        # Final cleanup
-        humanized_text = re.sub(r'\s+', ' ', humanized_text)
-        humanized_text = humanized_text.strip()
-        
+        humanized_text = re.sub(r'\s+', ' ', humanized_text).strip()
         return humanized_text
 
+
 def main():
-    st.set_page_config(
-        page_title="AI Humanizer - Make AI Content Undetectable",
-        page_icon="🎭",
-        layout="wide"
-    )
-    
-    # Custom CSS for better appearance
+    # Custom CSS
     st.markdown("""
     <style>
     .main-header {
@@ -254,7 +208,6 @@ def main():
     
     st.markdown("<h1 class='main-header'>🎭 AI Humanizer</h1>", unsafe_allow_html=True)
     
-    # Warning disclaimer
     st.markdown("""
     <div class="warning-box">
     <strong>Important Disclaimer:</strong> This tool uses local processing only and cannot guarantee 
@@ -263,10 +216,8 @@ def main():
     </div>
     """, unsafe_allow_html=True)
     
-    # Initialize humanizer
     humanizer = AIHumanizer()
     
-    # Input section
     st.subheader("Enter AI-Generated Content")
     input_text = st.text_area(
         "Paste your AI-generated text below:",
@@ -275,17 +226,14 @@ def main():
         key="input_text"
     )
     
-    # Process button
     if st.button("🎭 Humanize Text", type="primary", use_container_width=True):
         if not input_text.strip():
             st.error("Please enter some text to humanize!")
         else:
             with st.spinner("Humanizing your text... This may take a moment."):
                 try:
-                    # Process the text
                     humanized_result = humanizer.humanize_text(input_text)
                     
-                    # Display results
                     st.subheader("Humanized Result")
                     st.markdown('<div class="result-container">', unsafe_allow_html=True)
                     st.text_area(
@@ -296,7 +244,6 @@ def main():
                     )
                     st.markdown('</div>', unsafe_allow_html=True)
                     
-                    # Add copy button functionality
                     st.download_button(
                         label="💾 Download Humanized Text",
                         data=humanized_result,
@@ -304,7 +251,6 @@ def main():
                         mime="text/plain"
                     )
                     
-                    # Statistics
                     original_words = len(input_text.split())
                     humanized_words = len(humanized_result.split())
                     st.info(f"Original: {original_words} words | Humanized: {humanized_words} words")
@@ -312,7 +258,6 @@ def main():
                 except Exception as e:
                     st.error(f"An error occurred during processing: {str(e)}")
     
-    # Information section
     with st.expander("ℹ️ How This Works"):
         st.markdown("""
         ### Local AI Humanization Process
@@ -335,7 +280,6 @@ def main():
         Please use this tool responsibly and in accordance with your institution's policies on AI usage.
         """)
     
-    # Footer
     st.markdown("---")
     st.markdown(
         "<div style='text-align: center; color: #666;'>"
@@ -343,6 +287,7 @@ def main():
         "</div>",
         unsafe_allow_html=True
     )
+
 
 if __name__ == "__main__":
     main()
